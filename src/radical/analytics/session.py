@@ -36,8 +36,11 @@ class Session(object):
 
         if stype == 'radical.pilot':
             import radical.pilot as rp
-            self._profile, self._t_min = rp.utils.get_session_profile    (sid=sid, src=self._src)
-            self._description, hm      = rp.utils.get_session_description(sid=sid, src=self._src)
+            self._profile, self._t_min, hm = \
+                    rp.utils.get_session_profile(sid=sid, src=self._src)
+            self._description, hm = \
+                    rp.utils.get_session_description(sid=sid, src=self._src,
+                                                     hostmap=hm)
 
             self._description['accuracy'] = None
             self._description['hostmap']  = hm
