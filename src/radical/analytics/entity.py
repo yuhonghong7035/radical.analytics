@@ -1,12 +1,15 @@
 
+import os
 import sys
+
+import radical.pilot as rp
 
 
 # ------------------------------------------------------------------------------
 #
 class Entity(object):
 
-    def __init__(self, _uid, _etype, _profile):
+    def __init__(self, _uid, _etype, _profile, _details):
         """
         This is a private constructor for an RA Entity: it gets a series of
         events and sorts it into its properties.  We have 4 properties:
@@ -21,10 +24,17 @@ class Entity(object):
         """
 
         assert(_uid)
-        assert(_profile)
+      # assert(_profile)
 
         self._uid         = _uid
         self._etype       = _etype
+        self._details     = _details
+        self._description = self._details.get('description', dict())
+        self._cfg         = self._details.get('cfg',         dict())
+
+        # FIXME: this should be sorted out on RP level
+        self._cfg['hostid'] = self._details['hostid']
+
         self._states      = dict()
         self._events      = dict()
         self._consistency = { 'log'         : list(), 
@@ -70,6 +80,14 @@ class Entity(object):
         return self._states
 
     @property
+    def description(self):
+        return self._description
+
+    @property
+    def cfg(self):
+        return self._cfg
+
+    @property
     def events(self):
         return self._events
 
@@ -102,14 +120,20 @@ class Entity(object):
         assert (not self._states)
         assert (not self._events)
 
-        if profile:
-            self._t_start = sys.float_info.max
-            self._t_stop  = sys.float_info.min
+        self._t_start = sys.float_info.max
+        self._t_stop  = sys.float_info.min
+
+      # if self.uid == os.environ.get('FILTER'):
+      #     print '\n\n%s' % self.uid
 
         # we expect each event to have `time` and `event_type`, and expect
         # 'state' events to signify a state transition, and thus to always 
         # have the property 'state' set, too
-        for event in profile:
+        for event in sorted(profile, key=lambda (x): (x['time'])):
+
+          # if self.uid == os.environ.get('FILTER'):
+          #     if 'Listen' not in event['msg']:
+          #         print event
 
             t = event['time']
 
@@ -119,6 +143,9 @@ class Entity(object):
             etype = event['event_type']
             if etype == 'state':
                 state = event['state']
+              # if self.uid == os.environ.get('FILTER'):
+              #     print '%s  %-25s  %8.2f' % (self.uid, state, event['time'])
+              #     print event
                 self._states[state] = event
 
             # we also treat state transitions as generic event.
@@ -127,12 +154,59 @@ class Entity(object):
                 self._events[etype] = list()
             self._events[etype].append(event)
 
-        if profile:
-            self._ttc = self._t_stop - self._t_start
-
         # FIXME: assert state model adherence here
         # FIXME: where to get state model from?
         # FIXME: sort events by time
+
+        # for pilots, we may not have any states.  If thst is the case, we dig
+        # them out of the state hostory
+        #
+        # FIXME: the fallback to state history will not make sense for current
+        #        RP profiles anymore, and should be removed before release.  It
+        #        does not change the data though.
+        #
+        statehist = self._details.get('json', {}).get('statehistory', [])
+        for e in statehist:
+            if e['state'] not in self._states:
+                self._states[e['state']] = {
+                        'entity_type' : self._etype,
+                        'event_type'  : 'state', 
+                        'msg'         : e['state'],
+                        'name'        : '', 
+                        'time'        : float(e['timestamp']) - float(self._details['t_min']),
+                        'uid'         : self._uid
+                        }
+
+                t = float(e['timestamp'])
+                self._t_start = min(self._t_start, t)
+                self._t_stop  = max(self._t_stop,  t)
+
+
+        # if we don't have a final state, we assume last entry as FAILED
+        if  rp.DONE     not in self._states and \
+            rp.FAILED   not in self._states and \
+            rp.CANCELED not in self._states :
+            if not profile:
+                self._states[rp.FAILED] = {
+                        'entity_type' : self._etype,
+                        'event_type'  : 'state',
+                        'msg'         : rp.FAILED,
+                        'name'        : '', 
+                        'time'        : self._details['t_max'],
+                        'uid'         : self._uid
+                        }
+            else:
+                self._states[rp.FAILED] = {
+                        'entity_type' : self._etype,
+                        'event_type'  : 'state',
+                        'msg'         : rp.FAILED,
+                        'name'        : '', 
+                        'time'        : profile[-1]['time'],
+                        'uid'         : self._uid
+                        }
+
+        self._ttc = self._t_stop - self._t_start
+
 
 
     # --------------------------------------------------------------------------
@@ -181,7 +255,8 @@ class Entity(object):
         ranges = self.ranges(state, event, time)
 
         if not ranges:
-            raise ValueError('no duration defined for given constraints')
+            return None
+          # raise ValueError('no duration defined for given constraints')
 
         ret = 0.0
         for r in ranges:
@@ -310,12 +385,15 @@ class Entity(object):
 
 
         if t_start == sys.float_info.max:
-            raise ValueError('initial condition did not apply')
+            return []
+          # raise ValueError('initial condition did not apply')
 
         if t_stop == sys.float_info.min:
-            raise ValueError('final condition did not apply')
+            return []
+          # raise ValueError('final condition did not apply')
 
-        if t_stop < t_start:
+        accuracy = 0.1
+        if t_start - t_stop > accuracy:
             raise ValueError('duration uncovered time inconsistency')
 
         # apply time filter, if such one is given

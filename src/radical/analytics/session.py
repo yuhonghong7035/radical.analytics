@@ -36,8 +36,11 @@ class Session(object):
 
         if stype == 'radical.pilot':
             import radical.pilot as rp
-            self._profile     = rp.utils.get_session_profile(sid=sid,     src=self._src)
-            self._description = rp.utils.get_session_description(sid=sid, src=self._src)
+            self._profile, self._t_min = rp.utils.get_session_profile    (sid=sid, src=self._src)
+            self._description, hm      = rp.utils.get_session_description(sid=sid, src=self._src)
+
+            self._description['accuracy'] = None
+            self._description['hostmap']  = hm
 
         else:
             raise ValueError('unsupported session type [%s]' % stype)
@@ -46,7 +49,7 @@ class Session(object):
         self._t_stop      = None
         self._ttc         = None
 
-        self._reporter    = None
+        self._log         = None
 
         # internal state is represented by a dict of entities:
         # dict keys are entity uids (which are assumed to be unique per
@@ -102,10 +105,10 @@ class Session(object):
     @property
     def _rep(self):
 
-        if not self._reporter:
-            self._reporter = ru.LogReporter()
+        if not self._log:
+            self._log = ru.get_logger('radical.analytics')
 
-        return self._reporter
+        return self._log.report
 
 
     # --------------------------------------------------------------------------
@@ -151,11 +154,29 @@ class Session(object):
         # for all uids found,  create and store an entity.  We look up the
         # entity type in one of the events (and assume it is consistent over
         # all events for that uid)
-        for uid,events in entity_events.iteritems():
-            etype = events[0]['entity_type']
+        # we also make sure that all pilots and units are represented, even if
+        # they don't have a profile
+        for uid in self._description['tree']:
+            if uid in entity_events:
+                events  = entity_events[uid]
+                etype   = events[0]['entity_type']
+                details = self._description['tree'][uid]
+                details['hostid'] = self._description['hostmap'].get(uid)
+                details['t_min']  = float(self._t_min)
+                details['t_max']  = float(self._profile[-1]['time'])
+            else:
+                # no events, just json
+                events  = list()
+                etype   = uid.split('.')[0]
+                details = self._description['tree'][uid]
+                details['hostid'] = self._description['hostmap'].get(uid)
+                details['t_min']  = float(self._t_min)
+                details['t_max']  = float(self._profile[-1]['time'])
+
             self._entities[uid] = Entity(_uid=uid,
                                          _etype=etype,
-                                         _profile=events)
+                                         _profile=events, 
+                                         _details=details)
 
 
     # --------------------------------------------------------------------------
