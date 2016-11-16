@@ -36,8 +36,11 @@ class Session(object):
 
         if stype == 'radical.pilot':
             import radical.pilot as rp
-            self._profile     = rp.utils.get_session_profile(sid=sid,     src=self._src)
-            self._description = rp.utils.get_session_description(sid=sid, src=self._src)
+            self._profile = rp.utils.get_session_profile(sid=sid,src=self._src)
+            self._description, hostmap = \
+                rp.utils.get_session_description(sid=sid, src=self._src)
+
+            self._description['hostmap']  = hostmap
 
         else:
             raise ValueError('unsupported session type [%s]' % stype)
@@ -64,7 +67,6 @@ class Session(object):
         # FIXME: we should do a sanity check that all encountered states and
         #        events are part of the respective state and event models
 
-
     # --------------------------------------------------------------------------
     #
     def __deepcopy___(self, memo):
@@ -78,7 +80,6 @@ class Session(object):
             setattr(ret, k, deepcopy(v, memo))
 
         return ret
-
 
     # --------------------------------------------------------------------------
     #
@@ -96,7 +97,6 @@ class Session(object):
         # FIXME: we may want to filter the session description etc. wrt. to the
         #        entity types remaining after a filter.
 
-
     # --------------------------------------------------------------------------
     #
     @property
@@ -106,7 +106,6 @@ class Session(object):
             self._reporter = ru.LogReporter()
 
         return self._reporter
-
 
     # --------------------------------------------------------------------------
     #
@@ -125,7 +124,6 @@ class Session(object):
     @property
     def t_range(self):
         return [self._t_start, self._t_stop]
-
 
     # --------------------------------------------------------------------------
     #
@@ -151,12 +149,14 @@ class Session(object):
         # for all uids found,  create and store an entity.  We look up the
         # entity type in one of the events (and assume it is consistent over
         # all events for that uid)
-        for uid,events in entity_events.iteritems():
+        for uid, events in entity_events.iteritems():
             etype = events[0]['entity_type']
+            details = self._description['tree'][uid]
+            details['hostid'] = self._description['hostmap'].get(uid)
             self._entities[uid] = Entity(_uid=uid,
                                          _etype=etype,
-                                         _profile=events)
-
+                                         _profile=events,
+                                         _details=details)
 
     # --------------------------------------------------------------------------
     #
@@ -765,4 +765,3 @@ class Session(object):
 
 
 # ------------------------------------------------------------------------------
-

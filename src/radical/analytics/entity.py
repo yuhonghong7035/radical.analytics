@@ -6,7 +6,7 @@ import sys
 #
 class Entity(object):
 
-    def __init__(self, _uid, _etype, _profile):
+    def __init__(self, _uid, _etype, _profile, _details):
         """
         This is a private constructor for an RA Entity: it gets a series of
         events and sorts it into its properties.  We have 4 properties:
@@ -25,19 +25,25 @@ class Entity(object):
 
         self._uid         = _uid
         self._etype       = _etype
+        self._details     = _details
+        self._description = self._details.get('description', dict())
+        self._cfg         = self._details.get('cfg',         dict())
+
+        # FIXME: this should be sorted out on RP level
+        self._cfg['hostid'] = self._details['hostid']
+
         self._states      = dict()
         self._events      = dict()
-        self._consistency = { 'log'         : list(),
-                              'state_model' : None,
-                              'event_model' : None,
-                              'timestamps'  : None}
+        self._consistency = {'log'         : list(),
+                             'state_model' : None,
+                             'event_model' : None,
+                             'timestamps'  : None}
 
         self._t_start     = None
         self._t_stop      = None
         self._ttc         = None
 
         self._initialize(_profile)
-
 
     # --------------------------------------------------------------------------
     #
@@ -70,6 +76,14 @@ class Entity(object):
         return self._states
 
     @property
+    def description(self):
+        return self._description
+
+    @property
+    def cfg(self):
+        return self._cfg
+
+    @property
     def events(self):
         return self._events
 
@@ -77,22 +91,19 @@ class Entity(object):
     def consistency(self):
         return self._consistency
 
-
     # --------------------------------------------------------------------------
     #
     def __str__(self):
 
         return "ra.Entity [%s]: %s\n    states: %s\n    events: %s" \
-                % (self.etype, self.uid,
-                   self._states.keys(), self._events.keys())
-
+               % (self.etype, self.uid,
+                  self._states.keys(), self._events.keys())
 
     # --------------------------------------------------------------------------
     #
     def __repr__(self):
 
         return str(self)
-
 
     # --------------------------------------------------------------------------
     #
@@ -134,7 +145,6 @@ class Entity(object):
         # FIXME: where to get state model from?
         # FIXME: sort events by time
 
-
     # --------------------------------------------------------------------------
     #
     def as_dict(self):
@@ -146,7 +156,6 @@ class Entity(object):
                 'events' : self._events
                }
 
-
     # --------------------------------------------------------------------------
     #
     def dump(self):
@@ -154,20 +163,17 @@ class Entity(object):
         import pprint
         pprint.pprint(self.as_dict())
 
-
     # --------------------------------------------------------------------------
     #
     def list_states(self):
 
         return self._states.keys()
 
-
     # --------------------------------------------------------------------------
     #
     def list_events(self):
 
         return self._events.keys()
-
 
     # --------------------------------------------------------------------------
     #
@@ -189,15 +195,14 @@ class Entity(object):
 
         return ret
 
-
     # --------------------------------------------------------------------------
     #
     def timestamps(self, state=None, event=None):
         """
         This method accepts a set of conditions, and returns the list of
         timestamps for which those conditions applied, i.e. for which state
-        transitions or events are known which match the given 'state' or 'event'
-        parameter.  If no match is found, an empty list is returned.
+        transitions or events are known which match the given 'state' or
+        'event' parameter.  If no match is found, an empty list is returned.
 
         Both `state` and `event` can be lists, in which case the union of all
         timestamps are returned.
@@ -226,7 +231,6 @@ class Entity(object):
                 ret.append(self._states[s]['time'])
 
         return sorted(ret)
-
 
     # --------------------------------------------------------------------------
     #
@@ -286,7 +290,6 @@ class Entity(object):
         if not isinstance(e_init,  list): e_init  = [e_init ]
         if not isinstance(e_final, list): e_final = [e_final]
 
-
         for s in s_init:
             s_info = self._states.get(s)
             if s_info:
@@ -297,7 +300,6 @@ class Entity(object):
             if s_info:
                 t_stop = max(t_stop, s_info['time'])
 
-
         for e in e_init:
             e_infos = self._events.get(e, [])
             for e_info in e_infos:
@@ -307,7 +309,6 @@ class Entity(object):
             e_infos = self._events.get(e, [])
             for e_info in e_infos:
                 t_stop = max(t_stop, e_info['time'])
-
 
         if t_start == sys.float_info.max:
             raise ValueError('initial condition did not apply')
