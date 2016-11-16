@@ -12,11 +12,11 @@ class Entity(object):
         events and sorts it into its properties.  We have 4 properties:
 
           - etype : the type of the entity in question.  This defines, amongst
-                    others, what state model the Session will assume to be valid
-                    for this entity
+                    others, what state model the Session will assume to be
+                    valid for this entity
           - uid   : an ID assumed to be unique in the scope of an RA Session
-          - states: a set of timed state transitions which are assumed to adhere
-                    to a well defined state model
+          - states: a set of timed state transitions which are assumed to
+                    adhere to a well defined state model
           - events: a time series of named, but otherwise unspecified events
         """
 
@@ -27,9 +27,9 @@ class Entity(object):
         self._etype       = _etype
         self._states      = dict()
         self._events      = dict()
-        self._consistency = { 'log'         : list(), 
-                              'state_model' : None, 
-                              'event_model' : None, 
+        self._consistency = { 'log'         : list(),
+                              'state_model' : None,
+                              'event_model' : None,
                               'timestamps'  : None}
 
         self._t_start     = None
@@ -107,7 +107,7 @@ class Entity(object):
             self._t_stop  = sys.float_info.min
 
         # we expect each event to have `time` and `event_type`, and expect
-        # 'state' events to signify a state transition, and thus to always 
+        # 'state' events to signify a state transition, and thus to always
         # have the property 'state' set, too
         for event in profile:
 
@@ -214,7 +214,7 @@ class Entity(object):
             state = []
         elif not isinstance(state, list):
             state = [state]
-        
+
         ret = []
 
         for e in event:
@@ -353,4 +353,3 @@ class Entity(object):
 
 
 # ------------------------------------------------------------------------------
-
