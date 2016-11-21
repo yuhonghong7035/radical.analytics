@@ -18,21 +18,23 @@ import radical.analytics as ra
 
 
 def initialize_entity(ename=None):
-    entities = {'session': {'session'      : [],   # RA session objects
-                            'experiment'   : [],   # Experiment ID
-                            'TTC'          : [],   # Time to completion
-                            'nhost'        : [],   # #host for CU execution
-                            'nunit'        : [],   # #units
-                            'npilot'       : [],   # #pilots
-                            'npilot_active': []},  # Number of active pilots
-                'pilot'  : {'pid'          : [],   # Pilot ID
-                            'sid'          : [],   # Session ID
-                            'hid'          : [],   # Host ID
-                            'experiment'   : []},  # Experiment ID
-                'unit'   : {'uid'          : [],   # Unit ID
-                            'sid'          : [],   # Session ID
-                            'hid'          : [],   # Host ID
-                            'experiment'   : []}}  # Experiment ID
+    entities = {'session': {'session'      : [],     # RA session objects
+                            'experiment'   : [],     # Experiment ID
+                            'TTC'          : [],     # Time to completion
+                            'nhost'        : [],     # #host for CU execution
+                            'nunit'        : [],     # #units
+                            'nunit_done'   : [],     # #active units
+                            'nunit_failed' : [],     # #failed units
+                            'npilot'       : [],     # #pilots
+                            'npilot_active': []},    # #active pilots
+                'pilot'  : {'pid'          : [],     # Pilot ID
+                            'sid'          : [],     # Session ID
+                            'hid'          : [],     # Host ID
+                            'experiment'   : []},    # Experiment ID
+                'unit'   : {'uid'          : [],     # Unit ID
+                            'sid'          : [],     # Session ID
+                            'hid'          : [],     # Host ID
+                            'experiment'   : []}}    # Experiment ID
 
     # Add the duration label of each state of each entity.
     for duration in pdm.keys():
@@ -179,12 +181,14 @@ def load_new_sessions(datadir, pdm, udm):
             # Check whether SID of json file name is consistent with SID of
             # directory name.
             if sid == folders[1]:
+                # Experiment of this session.
+                experiment = folders[0]
 
                 # RA objects cannot be serialize: every RA session object need
-                # to be constructed at every run.
-                # TODO: Make RA session objects serializable in msgpack format.
+                # to be constructed at every run. TODO: Maybe make RA session
+                # objects serializable in msgpack format?
                 sra = ra.Session(sid, 'radical.pilot', src=path)
-                sras[sid] = sra
+                sras[sid] = [sra, experiment]
 
                 # Skip session if we have already saved it on disk. No need to
                 # recompute all the durations and properties for the session
@@ -193,6 +197,7 @@ def load_new_sessions(datadir, pdm, udm):
                 stored_sessions = load_df(ename='session')
                 if sid in stored_sessions.index.tolist():
                     stored_sessions.loc[sid, 'session'] = sra
+                    stored_sessions.loc[sid, 'experiment'] = experiment
                     print '%s --- %s already stored in %s' % \
                         (folders[0], sid, csvs['session'])
                     continue
@@ -207,13 +212,17 @@ def load_new_sessions(datadir, pdm, udm):
                 sp = sra.filter(etype='pilot', inplace=False)
                 su = sra.filter(etype='unit', inplace=False)
                 ss['session'].append(sra)
-                ss['experiment'].append(folders[0])
+                ss['experiment'].append(experiment)
                 ss['TTC'].append(sra.ttc)
                 ss['nhost'].append(None)
                 ss['nunit'].append(len(su.get()))
                 ss['npilot'].append(len(sp.get()))
                 ss['npilot_active'].append(
                     len(sp.timestamps(state='PMGR_ACTIVE')))
+                ss['nunit_done'].append(
+                    len(su.timestamps(state='DONE')))
+                ss['nunit_failed'].append(
+                    len(su.timestamps(state='FAILED')))
 
                 # Pilots total durations.  NOTE: ss initialization guarantees
                 # the existence of keys.
@@ -236,7 +245,8 @@ def load_new_sessions(datadir, pdm, udm):
 
     # Add RA session objects to the df loaded from disk.
     for sid in sras.keys():
-        stored_sessions.loc[sid, 'session'] = sras[sid]
+        stored_sessions.loc[sid, 'session'] = sras[sid][0]
+        stored_sessions.loc[sid, 'experiment'] = sras[sid][1]
 
     return stored_sessions
 
@@ -248,12 +258,12 @@ def add_session_unique_hosts(sessions, pilots):
             sessions.loc[sid, 'nhost'] = len(
                 pilots[pilots['sid'] == sid]['hid'].unique())
             store_df(sessions, ename='session')
-            sys.stdout.write('\n%s: %s hosts, stored in %s.' %
-                             (sid, sessions.loc[sid]['nhost'], csvs['pilot']))
+            print '%s: %s hosts, stored in %s.' % \
+                (sid, sessions.loc[sid]['nhost'], csvs['pilot'])
 
         else:
-            sys.stdout.write('\n%s: %s hosts already stored in %s' %
-                             (sid, sessions.loc[sid]['nhost'], csvs['pilot']))
+            print '%s: %s hosts already stored in %s' % \
+                (sid, sessions.loc[sid]['nhost'], csvs['pilot'])
     return sessions
 
 
@@ -268,18 +278,19 @@ def add_unit_hosts(units, pilots, sessions):
             uix = units[(units['sid'] == sid) & (units['uid'] == uid)].index[0]
             if pd.isnull(units.loc[uix]['hid']):
                 punit = [key[0] for key in pu_rels.items() if uid in key[1]][0]
-                hid = pilots[(pilots['sid'] == sid) & (pilots['pid'] == punit)]['hid'].tolist()[0]
+                hid = pilots[(pilots['sid'] == sid) &
+                             (pilots['pid'] == punit)]['hid'].tolist()[0]
                 units.loc[uix, 'pid'] = punit
                 units.loc[uix, 'hid'] = hid
                 counter += 1
             else:
-                sys.stdout.write('\n%s:%s host ID already stored in %s' %
-                                 (sid, uid, csvs['unit']))
+                print '%s:%s host ID already stored in %s' % \
+                    (sid, uid, csvs['unit'])
 
-    if counter:
-        store_df(units, ename='unit')
-        sys.stdout.write('\n%s: %s host and pilot IDs stored in %s.' %
-                         (sid, counter, csvs['unit']))
+        if counter:
+            store_df(units, ename='unit')
+            print '%s: %s host and pilot IDs stored in %s.' % \
+                (sid, counter, csvs['unit'])
 
     return units
 
@@ -291,9 +302,13 @@ def load_new_pilots(pdm, sessions):
     # Calculate the duration for each state of each pilot of each run and
     # Populate the DataFrame  structure.
     for sid in sessions.index:
-        sys.stdout.write('\n%s --- %s' % (sessions.loc[sid, 'experiment'], sid))
+        sys.stdout.write('\n%s --- %s' %
+                         (sessions.loc[sid, 'experiment'], sid))
+
         ps = initialize_entity(ename='pilot')
         stored_pilots = load_df(ename='pilot')
+
+        # Did we already stored pilots of this session?
         if not stored_pilots['sid'].empty:
             stored_pids = stored_pilots[
                 stored_pilots['sid'] == sid]['pid'].values.tolist()
@@ -313,8 +328,7 @@ def load_new_pilots(pdm, sessions):
             ps['experiment'].append(sessions.loc[sid, 'experiment'])
 
             # Derive host ID for each pilot.
-            sf = s.filter(uid=pid, inplace=False)
-            pentity = sf.get(etype=['pilot'])[0]
+            pentity = s.get(uid=pid)[0]
             if pentity.cfg['hostid']:
                 ps['hid'].append(parse_osg_hostid(pentity.cfg['hostid']))
             else:
@@ -324,20 +338,25 @@ def load_new_pilots(pdm, sessions):
             for duration in pdm.keys():
                 if duration not in ps.keys():
                     ps[duration] = []
-                if (not sf.timestamps(state=pdm[duration][0]) or
-                        not sf.timestamps(state=pdm[duration][1])):
+                try:
+                    ps[duration].append(pentity.duration(pdm[duration]))
+                    sys.stdout.write(' %s' % duration)
+                except:
+                    print '\nWARNING: Failed to calculate duration %s' % \
+                        duration
                     ps[duration].append(None)
-                    continue
-                ps[duration].append(sf.duration(pdm[duration]))
-                sys.stdout.write('.')
+
         # Store session DF to csv.
         if ps['pid']:
             pilots = pd.DataFrame(ps)
             store_df(pilots, stored=stored_pilots, ename='pilot')
             print '\nstored in %s.' % csvs['pilot']
 
-    # Return new DF merged into the one already stored (possibly empty).
-    return stored_pilots
+    # Returns everything we have stored. Worse case scenario, we reload what we
+    # already have.
+    stored_pilots = load_df(ename='pilot')
+    # We need 'pid', 'sid' and 'hid'. Save memory.
+    return stored_pilots.loc[:, ['pid', 'sid', 'hid']]
 
 
 # TODO: Repeated code.
@@ -348,10 +367,12 @@ def load_new_units(udm, sessions):
     # Calculate the duration for each state of each pilot of each run and
     # Populate the DataFrame  structure.
     for sid in sessions.index:
-        sys.stdout.write('\n%s --- %s' % (sessions.loc[sid, 'experiment'], sid))
+        sys.stdout.write('\n%s --- %s' %
+                         (sessions.loc[sid, 'experiment'], sid))
 
         us = initialize_entity(ename='unit')
         stored_units = load_df(ename='unit')
+
         if not stored_units['sid'].empty:
             stored_uids = stored_units[
                 stored_units['sid'] == sid]['uid'].values.tolist()
@@ -373,23 +394,34 @@ def load_new_units(udm, sessions):
             us['experiment'].append(sessions.loc[sid, 'experiment'])
 
             # Derive durations of each session's pilot.
-            sf = s.filter(uid=uid, inplace=False)
+            # sf = s.filter(uid=uid, inplace=False)
+            uentity = s.get(uid=uid)[0]
             for duration in udm.keys():
                 if duration not in us.keys():
                     us[duration] = []
-                if (not sf.timestamps(state=udm[duration][0]) or
-                        not sf.timestamps(state=udm[duration][1])):
+                try:
+                    if duration == 'U_AGENT_EXECUTING':
+                        if 'AGENT_STAGING_OUTPUT_PENDING' in \
+                                uentity.states.keys() and \
+                           'FAILED' in uentity.states.keys():
+                                us[duration].append(None)
+                                continue
+                    us[duration].append(uentity.duration(udm[duration]))
+                    sys.stdout.write(' %s' % duration)
+                except:
+                    print '\nWARNING: Failed to calculate duration %s' % \
+                        duration
                     us[duration].append(None)
-                    continue
-                us[duration].append(sf.duration(udm[duration]))
-                sys.stdout.write('.')
+
         # Store session DF to csv.
         if us['uid']:
             units = pd.DataFrame(us)
             store_df(units, stored=stored_units, ename='unit')
             print '\nstored in %s.' % csvs['unit']
 
-    # Return new DF merged into the one already stored (possibly empty).
+    # Returns everything we have stored. Worse case scenario, we reload what we
+    # already have.
+    stored_units = load_df(ename='unit')
     return stored_units
 
 
