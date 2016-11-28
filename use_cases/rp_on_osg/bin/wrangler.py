@@ -227,11 +227,13 @@ def load_new_sessions(datadir, pdm, udm):
                 # Pilots total durations.  NOTE: ss initialization guarantees
                 # the existence of keys.
                 for duration in pdm.keys():
+                    print duration
                     ss[duration].append(sp.duration(pdm[duration]))
 
                 # Units total durations. NOTE: ss initialization guarantees the
                 # existence of ss keys.
                 for duration in udm.keys():
+                    print duration
                     ss[duration].append(su.duration(udm[duration]))
 
                 # Store session DF to csv.
